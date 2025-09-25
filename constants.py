@@ -1,0 +1,9 @@
+P = 1
+DIM = 5
+DISTRIBUTION = "Normal"
+N = 100
+BASE = 1.1
+K = 2
+VERBOSE = False
+
+DIAMETER = 2**DIM
