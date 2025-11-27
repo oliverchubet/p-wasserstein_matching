@@ -1,5 +1,5 @@
-P = 1
-DIM = 5
+P = 2
+DIM = 2
 DISTRIBUTION = "Normal"
 N = 100
 BASE = 1.1

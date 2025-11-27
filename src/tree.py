@@ -7,6 +7,12 @@ class Tree:
         parent_node = self.nodes[parent]
         node = Node(point, parent_node)
         self.nodes[point] = node
+        parent_node.children.add(point)
+
+    def remove(self, point):
+        node = self.nodes[point]
+        for child in node.children:
+            self.remove(child)
 
     def path(self, point):
         cur = self.nodes[point]
@@ -21,4 +27,5 @@ class Node:
     def __init__(self, pt, parent=None):
         self.pt = pt
         self.parent = parent
+        self.children = set()
 
