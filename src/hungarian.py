@@ -8,55 +8,45 @@ import copy
 from math import ceil, log
 
 class Hungarian:
-    def __init__(self, A, B, dist, p=1, delta=0.01):
+    def __init__(self, A, B, dist, p=1, delta=0.01, base=1.01, dim=2):
         self.A = A
         self.B = B
         self.n = len(A)
         self.dist = dist
         self.p = p
-        self.diam = 2*pow(2, DIM)
+        self.diam = 2*pow(2, p)
         self.min_cost = 0
         self.cost_using_clustering = 0
-        self.decomp = Decomposition(A, B, dist)
+        self.decomp = Decomposition(A, B, dist, p, delta, k=2, base=base, dim=dim)
         self.visitedA = set()
         self.visitedB = set()
         self.freeB = set([b for b in self.B])
+        self.unvisitedA = set([a for a in self.A])
         self.matched = 0
         self.phases = 0
         self.edges_seen = 0
         self.delta = delta
-        self.danger = 0
+        self.base = base
 
     '''
     Computes min cost matching using p-th power distances
     '''
     def compute_min_cost_matching(self):
         if VERBOSE: print("\nCompute min-cost matching")
-        count = 0
+        count, len_path = 0, 0
         while self.matched < self.n and count < self.n: 
             count += 1
-            if VERBOSE: print("x", end='', flush=True)
-            len_path = self.djikstra()
+            print("Iteration", count)
+            self.compute_cluster_distance()
+            self.all_feasible()
             self.update_dual_weights(len_path)
-            if self.danger > 5:
-                print("Holy fuck")
+            len_path = self.djikstra()
         if not self.is_matching():
             # Error message
             print("Algorithm finished without finding a perfect matching")
-        # COMPUTE CLUSTER DISTANCE TO USE FOR MATCHING COST
-        self.distC = dict()
-        for a in self.A:
-            for b in self.B:
-                self.distC[(a,b)] = self.diam 
+        self.compute_cluster_distance()
 
-        # BRUTE FORCE COMPUTE CLUSTER DISTANCE
-        for center, cluster in self.decomp.clusters.items():
-            for a in cluster.A:
-                for b in cluster.B:
-                    self.distC[(a,b)] = min(cluster.distC(a,b), self.distC[(a,b)])
-        #cost = sum([pow(distC[(a,a.match)],self.p) for a in self.A])
-
-        self.check_all_feasible()
+        self.all_feasible()
         cost = sum([pow(self.distC[(a,a.match)],self.p) for a in self.A])
         self.cost_using_clustering = pow(cost, 1.0/self.p)
         cost = sum([pow(dist(a,a.match),self.p) for a in self.A])
@@ -97,46 +87,42 @@ class Hungarian:
     def update_dual_weights(self, shortest_path):
         if shortest_path is not None:
             for b in self.visitedB:
-                if b.len_path < shortest_path:
-                        b.dual_weight += shortest_path - b.len_path
-                        b.weight = b.dual_weight
+                b.dual_weight += shortest_path - b.len_path
             for a in self.visitedA:
-                if a.len_path < shortest_path:
-                    a.dual_weight += a.len_path #- shortest_path
-                    a.weight = a.dual_weight
-        else:
-            self.danger += 1
-        self.visitedB = set([b for b in self.freeB])
+                a.dual_weight += a.len_path - shortest_path
+        self.unvisitedA = set([a for a in self.A])
         self.visitedA = set()
+        self.visitedB = set([b for b in self.freeB])
 
-    def check_all_feasible(self):
+    def all_feasible(self):
         for a in self.A:
             for b in self.B:
-                self.check_feasible(a,b)
+                assert(self.is_feasible(a,b))
 
-    def check_feasible(self, a, b):
-        level = ceil(log(self.dist(a,b),BASE))
-
-        slack = pow(2*pow(BASE, level),self.p) - a.weight - b.weight + self.delta
-        if -a.dual_weight + b.dual_weight > slack:
+    def is_feasible(self, a, b):
+        proxy_dist = ceil(pow(self.distC[(a,b)],self.p)/self.delta)
+        if a.dual_weight + b.dual_weight > proxy_dist + 1:
             print("Not feasible...")
-            print("slack = ", slack)
+            print("proxy dist= ", proxy_dist)
             print("y(a) = ", a.dual_weight)
             print("y(b) = ", b.dual_weight)
+            return False
 
         if a.match is b:
-            if -a.dual_weight + b.dual_weight > slack:
+            if a.dual_weight + b.dual_weight != proxy_dist:
                 print("Not admissible...")
-                print("slack = ", slack)
+                print("proxy dist= ", proxy_dist)
                 print("y(a) = ", a.dual_weight)
                 print("y(b) = ", b.dual_weight)
+                return False
+        return True
 
     '''
     Shortest path tree used in Djikstra's algorithm
     '''
     def init_shortest_path_tree(self):
         self.shortest_path_tree = Tree()
-        for b in self.visitedB:
+        for b in self.freeB:
             self.shortest_path_tree.connect(b, "root")
 
     '''
@@ -145,34 +131,31 @@ class Hungarian:
     '''
     def djikstra(self, threshhold=None):
         self.init_shortest_path_tree()
-        self.decomp.init_min_slack_heap(self.visitedA, self.visitedB, threshhold=threshhold)
-        len_path = self.diam 
+        self.decomp.init_min_slack_heap(self.unvisitedA, self.freeB, threshhold=threshhold)
+        shortest_path = None
         while len(self.decomp.slack_heap) > 0:
-            #if VERBOSE: print(".", end='', flush=True)
             self.edges_seen += 1
             edge = self.decomp.find_min_slack_edge()
-            if edge.slack is None:
-                return len_path
             a, b = edge.a, edge.b
             a.len_path = edge.slack + b.len_path
             self.shortest_path_tree.connect(a, b)
             self.visitedA.add(a)
-            if a.free:
-                #if VERBOSE: print("x",self.dist(a,b), end='', flush=True)
+            self.visitedB.add(b)
+            self.unvisitedA.remove(a)
+            if a.match is None:
                 aug_path = self.shortest_path_tree.path(a)
-                len_path = a.len_path
-                self.decomp.removeA(a, threshhold=threshhold)
+                shortest_path = a.len_path
+                #self.decomp.removeA(a, threshhold=threshhold)
                 self.augment(aug_path)
-                #return a.len_path
+                return shortest_path
             else:
                 b = a.match
                 b.len_path = a.len_path
-                b.weight = b.dual_weight - b.len_path
                 self.shortest_path_tree.connect(b, a)
                 self.visitedB.add(b)
                 self.decomp.removeA(a, threshhold=threshhold)
                 self.decomp.updateB(b, threshhold=threshhold)
-        #return len_path
+        return len_path
 
     '''
     Updates the matching given the path returned by Djikstra's
@@ -180,12 +163,10 @@ class Hungarian:
     def augment(self, path):
         it = iter(path)
         a = next(it)
-        a.free = False
         while a != "root":
             self.phases += 1
             b = next(it)
-            b.dual_weight -= self.delta
-            b.weight -= self.delta
+            b.dual_weight -= 1
             self.decomp.removeB(b)
             a.match = b
             a = next(it)
@@ -193,7 +174,6 @@ class Hungarian:
             self.shortest_path_tree.remove(b)
         if b in self.freeB:
             self.freeB.remove(b)
-            b.free = False
         self.matched += 1
 
     '''
@@ -201,22 +181,31 @@ class Hungarian:
     '''
     def reset_matching(self):
         self.matched = 0
-        self.visitedA = set()
-        self.visitedB = set()
         for pt in self.A:
             pt.dual_weight = 0
-            pt.weight = 0
+            pt.len_path = 0
             pt.len_path = None
             pt.match = None
-            pt.visited = False
-            pt.free = True
         for pt in self.B:
             pt.dual_weight = 0
-            pt.weight = 0
+            pt.len_path = 0
             pt.len_path = 0
             pt.match = None
             self.visitedB.add(pt)
 
+    def compute_cluster_distance(self):
+        # COMPUTE CLUSTER DISTANCE TO USE FOR MATCHING COST
+        self.distC = dict()
+        for a in self.A:
+            for b in self.B:
+                self.distC[(a,b)] = self.diam 
+
+        # BRUTE FORCE COMPUTE CLUSTER DISTANCE
+        for center, cluster in self.decomp.clusters.items():
+            for a in cluster.A:
+                for b in cluster.B:
+                    self.distC[(a,b)] = min(cluster.distC(a,b), self.distC[(a,b)])
+        #cost = sum([pow(distC[(a,a.match)],self.p) for a in self.A])
 
 
 if __name__ == "__main__":

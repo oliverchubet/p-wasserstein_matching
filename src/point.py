@@ -8,18 +8,26 @@ class Point:
         Point.count += 1
         self.coords = coords 
         self.dual_weight = 0
-        self.weight = None
         self.len_path = None
-        self.free = True
         self.match = None
-        self.matched = False
-        self.visited = False
-        self.DFS_visited = False
+
+    #def __eq__(self, other):
+    #    return self.id == other.id
+
+    def __str__(self):
+        return str(self.coords)
 
 class Edge:
     def __init__(self, a, b, slack, center, level):
         self.a = a
         self.b = b
         self.slack = slack
-        self.cluster = center # the cluster that created it
+        self.cluster = center
         self.level = level
+
+    def __str__(self):
+        if self.a is None: str_a = "None"
+        else: str_a = str(self.a.id)
+        if self.b is None: str_b = "None"
+        else: str_b = str(self.b.id)
+        return "".join(["Edge (", str_a, ",", str_b, "); slack = ", str(self.slack)])

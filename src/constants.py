@@ -1,9 +1,3 @@
-P = 2
-DIM = 2
-DISTRIBUTION = "Normal"
-N = 100
-BASE = 1.1
-K = 2
-VERBOSE = False
-
-DIAMETER = 2**DIM
+VERBOSE = False 
+DEBUG = False
+VERBOSEPLUS = False
