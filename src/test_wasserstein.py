@@ -16,13 +16,13 @@ class TestMinimal(unittest.TestCase):
         # error for n=3, seed(54
         #for x in range(100):
         for x in [54]:
-            print("Seed =", x)
-            seed(x)
-            n = 5000
-            self.base = 1.01
+            #print("Seed =", x)
+            #seed(x)
+            n = 100
+            self.base = 1.05
             self.delta = 0.01
             self.p = 2
-            self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Uniform")
+            self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Normal")
             self.distance_function = utils.dist
             self.wasserstein = Wasserstein(self.A, self.B, self.distance_function, self.p, delta=self.delta, base=self.base)
             if DEBUG: self.wasserstein.print_proxy_dist_matrix()
@@ -40,6 +40,7 @@ class TestMinimal(unittest.TestCase):
             cluster_ratio = cluster_cost / real_cost
             cluster_emd_ratio = cluster_emd_cost / real_cost
             ratio = cost / real_cost
+            print("n =", n, "delta =", self.delta, "eps =", self.base - 1)
             print()
 
             print("our matching cost: ", cost)

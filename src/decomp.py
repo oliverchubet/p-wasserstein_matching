@@ -45,42 +45,52 @@ class Decomposition:
     '''
     def compute_samples(self):
         prob = pow(self.n, -1.0/self.k)
-        for pt in chain(self.A, self.B):
+        #for pt in chain(self.A, self.B):
+        for pt in chain(self.A):
             for i in range(self.k):
                 if i == self.k-1 or random.random() > prob:
-                    self.layers[i].add(pt)
+                    self.layersA[i].add(pt)
+                    break
+        for pt in chain(self.B):
+            for i in range(self.k):
+                if i == self.k-1 or random.random() > prob:
+                    self.layersB[i].add(pt)
                     break
 
     '''
     Initializes self.nearest to store nearest neighbor distances to the current sample
     '''
     def init_nearest(self):
-        self.nearest = dict()
+        self.nearestA, self.nearestB = dict(), dict()
         for x in chain(self.A,self.B):
-            self.nearest[x] = self.diam
+            self.nearestA[x], self.nearestB[x] = self.diam, self.diam
 
     '''
     Brute force computation of nearest neighbor distances to sample
     '''
     def compute_nearest(self, i):
         for x in chain(self.A,self.B):
-            for s in self.layers[i]:
-                self.nearest[x] = min(self.nearest[x], self.dist(x,s))
+            for s in self.layersA[i]:
+                self.nearestA[x] = min(self.nearestA[x], self.dist(x,s))
+            for s in self.layersB[i]:
+                self.nearestB[x] = min(self.nearestB[x], self.dist(x,s))
 
     def compute_clusters(self, i):
-        for c in self.layers[i]:
-            self.compute_cluster(c)
+        for c in self.layersA[i]:
+            self.compute_clusterA(c)
+        for c in self.layersB[i]:
+            self.compute_clusterB(c)
 
     '''
     Adds points to the cluster if the center is closer than the nearest neighbor distance to the sample.
     Points are bucketed by levels determined by distance to the center.
     '''
-    def compute_cluster(self, center):
+    def compute_clusterA(self, center):
         #if VERBOSE: print('.', end='', flush=True)
         bucketsA, bucketsB = defaultdict(set), defaultdict(set)
         pointsA, pointsB = dict(), dict()
         for a in self.A:
-            if self.dist(a,center) < self.nearest[a]:
+            if self.dist(a,center) < self.nearestA[a]:
                 self.lookup[a].add(center)
                 level = -inf
                 if self.dist(a,center) > 0:
@@ -88,7 +98,30 @@ class Decomposition:
                 bucketsA[level].add(a)
                 pointsA[a] = level
         for b in self.B:
-            if self.dist(center,b) < self.nearest[b]:
+            if self.dist(center,b) < self.nearestA[b]:
+                self.lookup[b].add(center)
+                level = -inf
+                if self.dist(center,b) > 0:
+                    level = ceil(log(self.dist(center,b), self.base))
+                bucketsB[level].add(b)
+                pointsB[b] = level
+        if len(bucketsA) > 0 and len(bucketsB) > 0:
+            self.clusters[center] = Cluster(pointsA, pointsB,center, bucketsA, bucketsB, self.p, self.base, self.delta, self.diam)
+
+    def compute_clusterB(self, center):
+        #if VERBOSE: print('.', end='', flush=True)
+        bucketsA, bucketsB = defaultdict(set), defaultdict(set)
+        pointsA, pointsB = dict(), dict()
+        for a in self.A:
+            if self.dist(a,center) < self.nearestB[a]:
+                self.lookup[a].add(center)
+                level = -inf
+                if self.dist(a,center) > 0:
+                    level = ceil(log(self.dist(a,center),self.base))
+                bucketsA[level].add(a)
+                pointsA[a] = level
+        for b in self.B:
+            if self.dist(center,b) < self.nearestB[b]:
                 self.lookup[b].add(center)
                 level = -inf
                 if self.dist(center,b) > 0:
@@ -233,7 +266,7 @@ class Cluster:
         # caching the value 2*pow(base, level) to avoid function call overhead
         levelsA, levelsB = set(bucketsA.keys()), set(bucketsB.keys())
         levels = levelsA.union(levelsB)
-        self._cache_level_dist = {level: 2*pow(base, level) for level in levels}
+        self._cache_level_dist = {level: pow(base, level) for level in levels}
         self._cache_proxy_level_dist = {level: ceil(self._cache_level_dist[level]/self.delta) for level in levels}
 
 
@@ -263,7 +296,11 @@ class Cluster:
             if DEBUG: print()
             if max_a is not None and max_b is not None:
                 #slack = self.proxyDistC(max_a, max_b) - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
-                slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
+                if max_a.id == self.id or max_b.id == self.id:
+                    slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
+                else:
+                    slack = 2*self._cache_proxy_level_dist[level] - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
+
                 if DEBUG: print("\t\tFound", max_a.id, max_b.id, "slack:", slack)
                 #print("slack =", slack, end="")
                 if min_slack > slack:
@@ -285,7 +322,10 @@ class Cluster:
             max_a = self.heapA.max_item_cache.get(level)
             if max_a is not None:
                 #slack = self.proxyDistC(max_a, b) - max_a.dual_weight - (b.dual_weight - b.len_path)
-                slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (b.dual_weight - b.len_path)
+                if b.id == self.id or max_a.id == self.id:
+                    slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (b.dual_weight - b.len_path)
+                else:
+                    slack = 2*self._cache_proxy_level_dist[level] - max_a.dual_weight - (b.dual_weight - b.len_path)
                 if min_slack > slack:
                     min_slack = slack
                     min_slack_edge = Edge(max_a, b, slack, self.center, level)

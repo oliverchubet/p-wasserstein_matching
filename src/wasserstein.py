@@ -275,8 +275,8 @@ class Wasserstein:
 
 if __name__ == "__main__":
     n = 100
-    base = 1.01
-    delta = 0.01
+    base = 1.1
+    delta = 0.02
     p = 2
     A, B, masses_A, masses_B = generate_points(n,p,"Uniform")
     distance_function = dist
