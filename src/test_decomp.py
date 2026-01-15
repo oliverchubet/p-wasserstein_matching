@@ -7,6 +7,7 @@ from constants import *
 from distribution import generate_points
 import math
 import utils
+from math import inf
 
 distance_function = utils.dist
 
@@ -17,10 +18,10 @@ class TestClustering(unittest.TestCase):
         cls.p = 2
         cls.delta = 0.01
         cls.k = 2
-        cls.n = 10
+        cls.n = 100
         cls.dim = 2
         cls.base = 1.01
-        cls.distribution = "Normal"
+        cls.distribution = "Uniform"
         cls.A, cls.B, cls.masses_A, cls.masses_B = generate_points(cls.n,cls.dim,cls.distribution)
         cls.decomp = Decomposition(cls.A, cls.B, distance_function, cls.p, cls.delta, cls.k, cls.base, cls.dim)
         cls.clusters = cls.decomp.clusters
@@ -58,7 +59,7 @@ class TestClustering(unittest.TestCase):
     def test_cluster_dist_assigned_to_each_pair(self):
         for a in self.A:
             for b in self.B:
-                self.assertTrue(self.distC[(a,b)] < self.diam or self.diam <= 2*self.k*self.base*distance_function(a,b))
+                self.assertTrue(self.distC[(a,b)] < self.diam or self.diam <= (2*self.k-1)*self.base*distance_function(a,b))
 
     def test_cluster_dist_is_dominating(self):
         dominates = True
@@ -73,7 +74,7 @@ class TestClustering(unittest.TestCase):
         for a in self.A:
             for b in self.B:
                 max_approx = max(max_approx, self.distC[(a,b)]/utils.dist(a,b))
-                assert(self.distC[(a,b)] <= 4*self.base*distance_function(a,b))
+                assert(self.distC[(a,b)] <= 3*self.base*distance_function(a,b))
 
     def test_for_empty_A_or_B_clusters(self):
         for center, cluster in self.clusters.items():
@@ -87,13 +88,13 @@ class TestClustering(unittest.TestCase):
         for center, cluster in self.clusters.items():
             for a in cluster.A:
                 if distance_function(a,center) == 0:
-                    self.assertEqual(cluster.A[a], None)
+                    self.assertEqual(cluster.A[a], -inf)
                 else:
                     level = ceil(log(distance_function(a,center),self.base))
                     self.assertEqual(cluster.A[a], level)
             for b in cluster.B:
                 if distance_function(b,center) == 0:
-                    self.assertEqual(cluster.B[b], None)
+                    self.assertEqual(cluster.B[b], -inf)
                 else:
                     level = ceil(log(distance_function(b,center),self.base))
                     self.assertEqual(cluster.B[b], level)
@@ -108,7 +109,7 @@ class TestClustering(unittest.TestCase):
         #print("emd distC matching cost: ", cluster_cost)
         #print("emd dist matching cost: ", real_cost)
         #print("ratio: ", ratio)
-        self.assertTrue(ratio <= 2*self.k*self.base)
+        self.assertTrue(ratio <= (2*self.k-1)*self.base)
 
 if __name__ == "__main__":
     unittest.main()

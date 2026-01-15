@@ -1,7 +1,7 @@
 from constants import *
 from distribution import generate_points
 from utils import dist
-from ai_decomp import Decomposition
+from decomp import Decomposition
 from itertools import chain
 from tree import Tree
 import copy
@@ -52,10 +52,21 @@ class Wasserstein:
         #self.partial_dfs()
 
     def compute_cost(self):
-        cost = sum([pow(self.distC[(a,a.match)],self.p) for a in self.A])
-        self.cost_using_clustering = pow(cost, 1.0/self.p)
+        cluster_cost = sum([pow(self.distC[(a,a.match)],self.p) for a in self.A])
+        proxy_cost = sum([self.proxyDistC[(a,a.match)] for a in self.A])
+        self.cost_using_clustering = pow(cluster_cost, 1.0/self.p)
+        self.cost_using_proxy = pow(proxy_cost, 1.0/self.p)
         cost = sum([pow(dist(a,a.match),self.p) for a in self.A])
         self.min_cost = pow(cost, 1.0/self.p)
+        num_preserved = 0
+        for a in self.A:
+            print(a.id, "--", a.match.id, ":", end=" ")
+            print("dist =", dist(a,a.match),";", end=" ")
+            print("distC =", self.distC[(a,a.match)], end="; ")
+            ratio = self.distC[(a,a.match)]/(dist(a,a.match))
+            print("ratio =", ratio)
+            if ratio <= self.base: num_preserved += 1
+        print("num preserved:", num_preserved)
 
     '''
     Uses the shortest path length returned by Djikstra's to update the dual weights
@@ -113,20 +124,26 @@ class Wasserstein:
         self.visitedA = set()
         self.visitedB = set([b for b in self.freeB])
         self.unvisistedA = set([a for a in self.A])
-        for b in self.B: b.len_path = None
-        for b in self.freeB: b.len_path = 0
-        for a in self.A: a.len_path = None
+        for b in self.B:
+            b.len_path = None
+            b.inserted = False
+        for b in self.freeB:
+            b.len_path = 0
+            b.inserted = True
+        for a in self.A:
+            a.len_path = None
+            a.inserted = True
         self.init_shortest_path_tree()
         self.decomp.init_min_slack_heap(self.A, self.freeB) #threshhold=threshhold)
         shortest_path = None
         count = 0
         while len(self.decomp.slack_heap) > 0 and count < self.n * self.n:
             count += 1
-            if DEBUG: print(self.decomp.slack_heap)
-            if DEBUG: self.decomp.print_cluster_heaps(self.visitedA, self.visitedB)
+            if DEBUGPLUS: print(self.decomp.slack_heap)
+            if DEBUGPLUS: self.decomp.print_cluster_heaps(self.visitedA, self.visitedB)
             edge = self.decomp.weighted_BCP()
             a, b = edge.a, edge.b
-            if DEBUG and a is not None: print("l(", a.id, ") =", edge.slack)
+            if DEBUGPLUS and a is not None: print("l(", a.id, ") =", edge.slack)
             a.len_path = edge.slack #+ b.len_path
             if VERBOSEPLUS: print("\t\tConnect",b.id,"-",a.id, "weight:", edge.slack)
             self.shortest_path_tree.connect(a, b)
@@ -145,9 +162,9 @@ class Wasserstein:
                 if VERBOSEPLUS: print("\t\tConnect",a.id,"-",b.id)
                 self.shortest_path_tree.connect(b, a)
                 self.visitedB.add(b)
-                if VERBOSEPLUS: print("\t\tRemove", a.id)
+                #if VERBOSEPLUS: print("\t\tRemove", a.id)
                 self.decomp.removeA(a) #threshhold=threshhold)
-                if VERBOSEPLUS: print("\t\tUpdate", b.id)
+                #if VERBOSEPLUS: print("\t\tUpdate", b.id)
                 if VERBOSEPLUS: self.print_slack_matrix(partial=True)
                 self.decomp.updateB(b) #threshhold=threshhold)
         #assert(count >= 1)

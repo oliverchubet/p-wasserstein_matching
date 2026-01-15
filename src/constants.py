@@ -1,3 +1,4 @@
-VERBOSE = False 
+VERBOSE = False
 DEBUG = False
 VERBOSEPLUS = False
+DEBUGPLUS = False

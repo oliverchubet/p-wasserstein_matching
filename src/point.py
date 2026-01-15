@@ -10,6 +10,7 @@ class Point:
         self.dual_weight = 0
         self.len_path = None
         self.match = None
+        self.inserted = False
 
     #def __eq__(self, other):
     #    return self.id == other.id

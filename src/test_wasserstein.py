@@ -16,43 +16,61 @@ class TestMinimal(unittest.TestCase):
         # error for n=3, seed(54
         #for x in range(100):
         for x in [54]:
-            #print("Seed =", x)
-            #seed(x)
-            n = 100
-            self.base = 1.05
-            self.delta = 0.01
+            print("Seed =", x)
+            seed(x)
+            n = 500 
+            self.base = 1.01
+            self.delta = .001
             self.p = 2
-            self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Normal")
+            self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Uniform")
             self.distance_function = utils.dist
             self.wasserstein = Wasserstein(self.A, self.B, self.distance_function, self.p, delta=self.delta, base=self.base)
             if DEBUG: self.wasserstein.print_proxy_dist_matrix()
             self.wasserstein.compute_pWasserstein()
 
             #dist_matrix = [ [ pow(utils.dist(a,b),2) for a in self.A] for b in self.B ] 
-            dist_matrix = [ [ pow(utils.dist(a,b),2) for a in self.A] for b in self.B ] 
+            dist_matrix = [ [ pow(utils.dist(a,b),self.p) for a in self.A] for b in self.B ] 
             #cluster_dist_matrix = [[ ceil(pow(self.wasserstein.distC[(a,b)],2)/self.delta)*self.delta for a in self.A] for b in self.B]
-            cluster_dist_matrix = [[ pow(self.wasserstein.distC[(a,b)],2) for a in self.A] for b in self.B]
+            cluster_dist_matrix = [[ pow(self.wasserstein.distC[(a,b)],self.p) for a in self.A] for b in self.B]
+            proxy_dist_matrix = [[ self.wasserstein.proxyDistC[(a,b)] for a in self.A] for b in self.B]
             
-            real_cost = pow(ot.emd2(masses_A, masses_B, dist_matrix), 1.0/2)
-            cost = self.wasserstein.min_cost
-            cluster_cost = self.wasserstein.cost_using_clustering
-            cluster_emd_cost = pow(ot.emd2(masses_A, masses_B, cluster_dist_matrix), 1.0/2)
-            cluster_ratio = cluster_cost / real_cost
-            cluster_emd_ratio = cluster_emd_cost / real_cost
-            ratio = cost / real_cost
+            real_cost = pow(ot.emd2(masses_A, masses_B, dist_matrix), 1.0/self.p)
+            our_cost = self.wasserstein.min_cost
+
+            our_cluster_cost = self.wasserstein.cost_using_clustering
+            emd_cluster_cost = pow(ot.emd2(masses_A, masses_B, cluster_dist_matrix), 1.0/self.p)
+
+            ratio = our_cost / real_cost
+
+            our_cluster_ratio = our_cluster_cost / real_cost
+            emd_cluster_ratio = emd_cluster_cost / real_cost
+
+            our_proxy_cost = self.wasserstein.cost_using_proxy
+            emd_proxy_cost = pow(ot.emd2(masses_A, masses_B, proxy_dist_matrix), 1.0/self.p)
+
+
             print("n =", n, "delta =", self.delta, "eps =", self.base - 1)
             print()
 
-            print("our matching cost: ", cost)
+            print("our matching cost: ", our_cost)
             print("\"real\" matching cost: ", real_cost)
             print("ratio: ", ratio)
 
             print()
-            print("our cluster matching cost: ", cluster_cost)
-            print("\"real\" matching cost: ", cluster_emd_cost)
+            print("our cluster matching cost: ", our_cluster_cost, "\t(cost using our algorithm and cluster distances)")
+            print("\"real\" cluster matching cost: ", emd_cluster_cost, "\t(cost using emd and cluster distances)")
+
 
             print()
-            print("our cluster ratio: ", cluster_ratio)
-            print("\"real\" cluster ratio: ", cluster_emd_ratio)
+            print("our cluster ratio: ", our_cluster_ratio, "\t(our cluster matching cost / real cost)")
+            print("\"real\" cluster ratio: ", emd_cluster_ratio, "\t(\"real\" cluster matching cost / real cost)")
 
 
+            print()
+            print("Note: ratio should be less than our cluster ratio, or something is wrong")
+            print("Note: our cluster ratio should match the \"real\" cluster ratio for small enough delta")
+
+            print("our proxy matching cost:", our_proxy_cost)
+            print("\"real\" proxy cost:", emd_proxy_cost)
+
+            #print([[ceil(pow(x,2)/self.delta) for x in row] for row in cluster_dist_matrix])
