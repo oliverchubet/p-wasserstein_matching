@@ -4,29 +4,32 @@ import utils
 from random import randint, seed
 from wasserstein import Wasserstein
 from point import Point
-from math import ceil
+from math import ceil,log
 from a_points import A, B
 from constants import *
 import ot
 
-class TestMinimal(unittest.TestCase):
+class TestMultiLevel(unittest.TestCase):
 
-    def test_wasserstein(self):
+
+    def test_wasserstein_k_level(self):
         #for count in range(100):
         # error for n=3, seed(54
         #for x in range(100):
         for x in [54]:
             print("Seed =", x)
             seed(x)
-            n = 1000
-            self.base = 1.1
-            self.delta = .1
+            n = 1000 
+            self.base = 1.01
+            self.delta = .01
             self.p = 2
+            k = ceil(log(n))
+            print("n =", n, "delta =", self.delta, "eps =", self.base - 1)
+            print("k =", k)
             self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Uniform")
             self.distance_function = utils.dist
-            self.wasserstein = Wasserstein(self.A, self.B, self.distance_function, self.p, delta=self.delta, base=self.base)
+            self.wasserstein = Wasserstein(self.A, self.B, self.distance_function, self.p, delta=self.delta, base=self.base, k=k)
             if DEBUG: self.wasserstein.print_proxy_dist_matrix()
-            print("n =", n, "eps =", self.base-1, "delta =", self.delta, "p =", self.p)
             self.wasserstein.compute_pWasserstein()
 
             #dist_matrix = [ [ pow(utils.dist(a,b),2) for a in self.A] for b in self.B ] 
@@ -51,6 +54,7 @@ class TestMinimal(unittest.TestCase):
 
 
             print("n =", n, "delta =", self.delta, "eps =", self.base - 1)
+            print("k =", k)
             print()
 
             print("our matching cost: ", our_cost)
@@ -75,4 +79,3 @@ class TestMinimal(unittest.TestCase):
             print("\"real\" proxy cost:", emd_proxy_cost)
 
             #print([[ceil(pow(x,2)/self.delta) for x in row] for row in cluster_dist_matrix])
-

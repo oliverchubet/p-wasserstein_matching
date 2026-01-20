@@ -16,7 +16,7 @@ class Point:
     #    return self.id == other.id
 
     def __str__(self):
-        return str(self.coords)
+        return str(self.id)+": "+str(self.coords)
 
 class Edge:
     def __init__(self, a, b, slack, center, level):

@@ -11,8 +11,11 @@ class Tree:
 
     def remove(self, point):
         node = self.nodes[point]
+        parent = node.parent
         for child in node.children:
             self.remove(child)
+        if parent is not None:
+            return parent.pt
 
     def path(self, point):
         cur = self.nodes[point]

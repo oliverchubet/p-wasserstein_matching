@@ -5,11 +5,13 @@ from decomp import Decomposition
 from itertools import chain
 from tree import Tree
 import copy
-from math import ceil, log
+from math import ceil, log, inf
 import ot
 
+#THRESHOLD = True
+
 class Wasserstein:
-    def __init__(self, A, B, dist, p=1, delta=0.01, base=1.01, dim=2):
+    def __init__(self, A, B, dist, p=1, delta=0.01, base=1.01, dim=2, k=2):
         self.A = A
         self.B = B
         self.n = len(A)
@@ -18,7 +20,7 @@ class Wasserstein:
         self.diam = 2*pow(2, dim)
         self.min_cost = 0
         self.cost_using_clustering = 0
-        self.decomp = Decomposition(A, B, dist, p, delta, k=2, base=base, dim=dim)
+        self.decomp = Decomposition(A, B, dist, p, delta, k=k, base=base, dim=dim)
         self.freeB = set([b for b in self.B])
         self.visitedA = set()
         self.visitedB = set([b for b in self.freeB])
@@ -28,6 +30,9 @@ class Wasserstein:
         self.edges_seen = 0
         self.delta = delta
         self.base = base
+        #self.tlevel = ceil(log(delta, self.base))
+        #if THRESHOLD is False:
+            #self.tlevel = ceil(log(self.diam, self.base))
 
     '''
     Computes min cost matching using p-th power distances
@@ -49,7 +54,7 @@ class Wasserstein:
     def run_phase(self):
         len_path = self.djikstra()
         self.update_dual_weights(len_path)
-        #self.partial_dfs()
+        self.partial_dfs()
 
     def compute_cost(self):
         cluster_cost = sum([pow(self.distC[(a,a.match)],self.p) for a in self.A])
@@ -60,11 +65,11 @@ class Wasserstein:
         self.min_cost = pow(cost, 1.0/self.p)
         num_preserved = 0
         for a in self.A:
-            print(a.id, "--", a.match.id, ":", end=" ")
-            print("dist =", dist(a,a.match),";", end=" ")
-            print("distC =", self.distC[(a,a.match)], end="; ")
+            #print(a.id, "--", a.match.id, ":", end=" ")
+            #print("dist =", dist(a,a.match),";", end=" ")
+            #print("distC =", self.distC[(a,a.match)], end="; ")
             ratio = self.distC[(a,a.match)]/(dist(a,a.match))
-            print("ratio =", ratio)
+            #print("ratio =", ratio)
             if ratio <= self.base: num_preserved += 1
         print("num preserved:", num_preserved)
 
@@ -73,9 +78,12 @@ class Wasserstein:
     '''
     def update_dual_weights(self, shortest_path):
         if VERBOSE: print("\tUpdating dual weights...")
+        #threshold = pow(self.base, self.tlevel)
         if shortest_path is not None:
             for b in self.visitedB:
                 b.dual_weight += shortest_path - b.len_path
+                #if self.base*self.base*b.dual_weight > threshold:
+                    #self.tlevel = ceil(log(b.dual_weight,self.base)) + 2
             for a in self.visitedA:
                 a.dual_weight += a.len_path - shortest_path
         ###if VERBOSEPLUS: self.print_dual_weights()
@@ -134,7 +142,7 @@ class Wasserstein:
             a.len_path = None
             a.inserted = True
         self.init_shortest_path_tree()
-        self.decomp.init_min_slack_heap(self.A, self.freeB) #threshhold=threshhold)
+        self.decomp.init_min_slack_heap(self.A, self.freeB) #, self.tlevel)
         shortest_path = None
         count = 0
         while len(self.decomp.slack_heap) > 0 and count < self.n * self.n:
@@ -149,7 +157,7 @@ class Wasserstein:
             self.shortest_path_tree.connect(a, b)
             self.visitedA.add(a)
             self.visitedB.add(b)
-            self.decomp.removeA(a) #threshhold=threshhold)
+            self.decomp.removeA(a) #, self.tlevel) #threshhold=threshhold)
             if a.match is None:
                 aug_path = self.shortest_path_tree.path(a)
                 shortest_path = a.len_path
@@ -163,49 +171,84 @@ class Wasserstein:
                 self.shortest_path_tree.connect(b, a)
                 self.visitedB.add(b)
                 #if VERBOSEPLUS: print("\t\tRemove", a.id)
-                self.decomp.removeA(a) #threshhold=threshhold)
+                self.decomp.removeA(a) #, self.tlevel) #threshhold=threshhold)
                 #if VERBOSEPLUS: print("\t\tUpdate", b.id)
                 if VERBOSEPLUS: self.print_slack_matrix(partial=True)
-                self.decomp.updateB(b) #threshhold=threshhold)
+                self.decomp.updateB(b) #, self.tlevel) #threshhold=threshhold)
         #assert(count >= 1)
         #print("Shortest path len", shortest_path)
         return shortest_path
 
     def partial_dfs(self):
+        #print("partial_dfs")
         #if VERBOSE: print("\tRunning partial DFS...")
-        self.decomp.init_min_slack_heap(self.unvisitedA, self.freeB) #threshhold=threshhold)
-        while len(self.decomp.slack_heap) > 0:
-            edge = self.decomp.weighted_BCP()
-            if edge.slack > 0: return
-            self.shortest_path_tree.connect(edge.a, edge.b)
-            self.decomp.removeA(edge.a)
-            if edge.a.match is None:
-                aug_path = self.shortest_path_tree.path(edge.a)
-                self.decomp.removeA(edge.a)
-                self.augment(aug_path)
-            else:
-                b = edge.a.match
-                self.shortest_path_tree.connect(b, edge.a)
-                self.visitedB.add(b)
-                self.decomp.updateB(b)
+        self.decomp.init_min_slack_heap(self.unvisitedA, []) #, self.tlevel) #threshhold=threshhold)
+        pts = [b for b in self.freeB]
+        for b in pts:
+            #print("\tb is", b.id)
+            aug_path = ["root", b]
+            cur_b = b
+            while True:
+                self.decomp.updateB(cur_b) #, self.tlevel)
+                edge = self.decomp.weighted_BCP()
+                if edge is not None and edge.slack < 1:
+                    #print("\t\t", edge)
+                    #a,b = edge.a, edge.b
+                    aug_path.append(edge.a)
+                    #aug_path.append(b)
+                    self.decomp.removeA(edge.a) #, self.tlevel)
+                    self.decomp.removeB(cur_b) #, self.tlevel)
+                    #self.decomp.removeB(b)
+                    if edge.a.match is None:
+                        #print("aug_path", aug_path[0], [x.id for x in aug_path[1:]])
+                        self.augment(reversed(aug_path))
+                    else:
+                        cur_b = a.match
+                        aug_path.append(cur_b)
+                else:
+                    aug_path.pop()
+                    aug_path.pop()
+                    if len(aug_path) <= 1: break
+                    cur_b = aug_path[-1]
+
+        #while len(self.decomp.slack_heap) > 0:
+        #    edge = self.decomp.weighted_BCP()
+        #    if edge.slack > 0: return
+        #    self.shortest_path_tree.connect(edge.a, edge.b)
+        #    self.decomp.removeA(edge.a)
+        #    if edge.a.match is None:
+        #        aug_path = self.shortest_path_tree.path(edge.a)
+        #        self.decomp.removeA(edge.a)
+        #        self.augment(aug_path)
+        #    else:
+        #        b = edge.a.match
+        #        self.shortest_path_tree.connect(b, edge.a)
+        #        self.visitedB.add(b)
+        #        self.decomp.updateB(b)
 
     '''
     Updates the matching given the path returned by Djikstra's
     '''
     def augment(self, path):
+        print("x", end="", flush=True)
         #if VERBOSE: print("\tAugmenting path", "-".join([str(pt.id) for pt in path[:-1]]), "...")
         it = iter(path)
         a = next(it)
-        while a != "root":
+        b = next(it)
+        while True: #a != "root":
             self.phases += 1
-            b = next(it)
+            #b = next(it)
             if a in self.unvisitedA: self.unvisitedA.remove(a)
             b.dual_weight -= 1
-            self.decomp.removeB(b)
+            self.decomp.removeB(b) #, self.tlevel)
+            if a == "root": break
             a.match = b
             a = next(it)
-            self.shortest_path_tree.remove(a)
-            self.shortest_path_tree.remove(b)
+            if a == "root": break
+            b = next(it)
+            #self.shortest_path_tree.remove(a)
+            #self.shortest_path_tree.remove(b)
+            #print("b", b.id)
         self.freeB.remove(b)
         self.matched += 1
         #if DEBUG: self.print_dual_weights()
@@ -287,8 +330,17 @@ class Wasserstein:
     def is_matching(self):
         for a in self.A:
             if a.match is None:
+                print("Not matching?")
+                self.print_matching()
                 return False
         return True
+
+    def print_matching(self):
+        for a in self.A:
+            if a.match:
+                print(a.id, a.match.id)
+            else:
+                print(a.id, None)
 
 if __name__ == "__main__":
     n = 100
