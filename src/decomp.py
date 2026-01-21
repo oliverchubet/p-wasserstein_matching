@@ -204,7 +204,15 @@ class Decomposition:
     def find_NN(self, b):
         if b in self.clusters:
             cluster = self.clusters[b]
-            return cluster.find_NN()
+        best_edge = cluster.find_NN()
+        for level in self.lookup[b]:
+            for center in self.lookup[b][level]:
+                if center not in self.clusters: continue
+                cluster = self.clusters[center]
+                edge = cluster.find_NN_b(b)
+                if edge.slack <= best_edge.slack:
+                    best_edge = edge
+        return best_edge
 
     def updateB(self, b, lazy=False):
         self.activated_B.add(b)
@@ -303,13 +311,44 @@ class Cluster:
     def find_NN(self):
         edge = Edge(None, self.center, self._max_slack, self.center, None)
         for level in self.all_levels:
+            #print("level", level)
             a = self.heapA.max_item_cache.get(level)
-            if edge.a is None or (a is not None and a.dual_weight > edge.a.dual_weight):
+            if edge.a is None: #or (a is not None and a.dual_weight > edge.a.dual_weight):
                 edge.a = a
-                if edge.a is not None:
-                    slack = self.parent.cache_proxy_dist[level] - a.dual_weight - (self.center.dual_weight - self.center.len_path) + 1
+            if a is not None:
+                slack = self.parent.cache_proxy_dist[level] - a.dual_weight - self.center.dual_weight + 1
+                if slack < edge.slack:
+                    edge.slack = slack
+                    edge.a = a
+                    #print("in find_NN", edge)
+                    #print("w_a", edge.a.dual_weight, "w_b", edge.b.dual_weight)
+                    #print("level", level)
+                    #print("proxy dist", self.parent.cache_proxy_dist[level])
+        return edge
 
+    def find_NN_b(self, b):
+        edge = Edge(None, b, self._max_slack, self.center, None)
+        b_level = self.B[b]
+        for level in self.all_levels:
+            #print("level", level)
+            a = self.heapA.max_item_cache.get(level)
+            if edge.a is None: #or (a is not None and a.dual_weight > edge.a.dual_weight):
+                edge.a = a
+            if a is not None:
+                if a == self.center:
+                    slack = self.parent.cache_proxy_dist[max(level,b_level)] - a.dual_weight - b.dual_weight + 1
+                    #print("level", level)
+                    #print("proxy dist", self.parent.cache_proxy_dist[level])
+                else:
+                    slack = self.parent.cache_proxy_diam[max(level,b_level)] - a.dual_weight - b.dual_weight + 1
+                    #print("level", level)
+                    #print("proxy diam", self.parent.cache_proxy_diam[level])
+
+                if slack < edge.slack:
                     edge.slack = min(edge.slack, slack)
+                    edge.a = a
+                    #print("in find_NN_b", edge)
+                #print("w_a", edge.a.dual_weight, "w_b", edge.b.dual_weight)
         return edge
 
     def insertB(self, b):

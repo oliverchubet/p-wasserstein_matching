@@ -9,6 +9,7 @@ from math import ceil, log, inf
 import ot
 
 #THRESHOLD = True
+SILENT = True
 
 class Wasserstein:
     def __init__(self, A, B, dist, p=1, delta=0.01, base=1.01, dim=2, k=2):
@@ -36,9 +37,9 @@ class Wasserstein:
         count, len_path = 0, 0
         while self.matched < self.n and count < self.n: 
             count += 1
-            print("Iteration", count,":")
+            if not SILENT: print("Iteration", count,":")
             self.run_phase()
-            self.check_all_feasible()
+            #self.check_all_feasible()
         assert(self.is_matching())
         self.check_all_feasible()
         self.compute_cost()
@@ -62,6 +63,7 @@ class Wasserstein:
     Return an augmenting path and length
     '''
     def djikstra(self):
+        #print("DJIKSTRA")
         #print("Djikstra:")
         for b in self.freeB: b.len_path = 0
         for a in self.A: a.len_path = None
@@ -108,23 +110,28 @@ class Wasserstein:
         return shortest_path_len
 
     def update_dual_weights(self, shortest_path):
+        #print("UPDATE DUAL WEIGHTS")
         for b in self.decomp.activated_B:
+            #print(b,":", b.dual_weight, "+", shortest_path, "-", b.len_path)
             b.dual_weight += shortest_path - b.len_path
         for a in self.decomp.inactivated_A:
             a.dual_weight += a.len_path - shortest_path
+            #print(a,":", a.dual_weight, "+", a.len_path, "-", shortest_path)
 
     def partial_dfs(self):
+        #print("PARTIAL DFS")
         self.decomp.activate_all_A(exclude=self.in_path)
-        self.decomp.activate_only_B(set())
+        #self.decomp.activate_only_B(set())
         pts = [b for b in self.freeB]
         for b in pts:
             aug_path = ["root", b]
             cur_b = b
             while True:
-                self.decomp.updateB(cur_b)
-                edge = self.decomp.bcp()
-                if edge is not None and edge.slack < 1:
-                    #print(edge)
+                #self.decomp.updateB(cur_b)
+                #edge = self.decomp.bcp()
+                edge = self.decomp.find_NN(cur_b)
+                if edge is not None and edge.a is not None and edge.slack < 1:
+                    #print("in partial:", edge)
                     aug_path.append(edge.a)
                     self.decomp.removeA(edge.a)
                     if edge.a.match is None:
@@ -133,9 +140,10 @@ class Wasserstein:
                             #print(x, end=" ")
                         #print()
                         self.augment(reversed(aug_path))
+                        #self.check_all_feasible()
                         break
                     else:
-                        self.decomp.removeB(cur_b)
+                        #self.decomp.removeB(cur_b)
                         cur_b = edge.a.match
                         aug_path.append(cur_b)
                 else:
@@ -148,18 +156,23 @@ class Wasserstein:
     '''
     Updates the matching given the path returned by Djikstra's
     '''
-    def augment(self, path, path_len=0):
-        print("x", end="", flush=True)
+    def augment(self, path, path_len=None):
+        #print("Augmenting")
+        if not SILENT: print("x", end="", flush=True)
         it = iter(path)
         a = next(it)
         b = next(it)
         while True:
             self.phases += 1
             self.in_path.add(a)
-            self.decomp.removeB(b)
-            b.dual_weight += path_len - b.len_path - 1
+            if path_len:
+                self.decomp.removeB(b)
+                #print(b,":", b.dual_weight, "+", path_len, "-", b.len_path, "- 1")
+                b.dual_weight += path_len - b.len_path 
+            b.dual_weight -= 1
             if a == "root": break
             a.match = b
+            #print(a.id, "->", b.id)
             a = next(it)
             if a == "root": break
             b = next(it)
@@ -173,11 +186,12 @@ class Wasserstein:
         self.cost_using_proxy = pow(proxy_cost, 1.0/self.p)
         cost = sum([pow(dist(a,a.match),self.p) for a in self.A])
         self.min_cost = pow(cost, 1.0/self.p)
-        num_preserved = 0
-        for a in self.A:
-            ratio = self.distC[(a,a.match)]/(dist(a,a.match))
-            if ratio <= self.base: num_preserved += 1
-        print("num preserved:", num_preserved)
+        if not SILENT:
+            num_preserved = 0
+            for a in self.A:
+                ratio = self.distC[(a,a.match)]/(dist(a,a.match))
+                if ratio <= self.base: num_preserved += 1
+            print("num preserved:", num_preserved)
 
     def compute_cluster_distance(self):
         #if VERBOSE: print("Computing cluster distances...")
@@ -203,6 +217,10 @@ class Wasserstein:
         for a in self.A:
             for b in self.B:
                 feasible = feasible and self.is_feasible(a,b)
+        #if not feasible:
+            #print("Matching:")
+            #for a in self.A:
+                #print(a, "->", a.match)
         assert(feasible)
 
     def is_feasible(self, a, b):

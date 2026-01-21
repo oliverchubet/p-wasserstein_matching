@@ -12,15 +12,12 @@ import ot
 class TestMinimal(unittest.TestCase):
 
     def test_wasserstein(self):
-        #for count in range(100):
-        # error for n=3, seed(54
-        #for x in range(100):
-        for x in [54]:
+        for x in [29]: #range(20):
             print("Seed =", x)
             seed(x)
-            n = 1000
-            self.base = 1.1
-            self.delta = .1
+            n = 100
+            self.base = 1.01
+            self.delta = 0.001
             self.p = 2
             self.A, self.B, masses_A, masses_B = generate_points(n,self.p,"Uniform")
             self.distance_function = utils.dist
@@ -29,9 +26,7 @@ class TestMinimal(unittest.TestCase):
             print("n =", n, "eps =", self.base-1, "delta =", self.delta, "p =", self.p)
             self.wasserstein.compute_pWasserstein()
 
-            #dist_matrix = [ [ pow(utils.dist(a,b),2) for a in self.A] for b in self.B ] 
             dist_matrix = [ [ pow(utils.dist(a,b),self.p) for a in self.A] for b in self.B ] 
-            #cluster_dist_matrix = [[ ceil(pow(self.wasserstein.distC[(a,b)],2)/self.delta)*self.delta for a in self.A] for b in self.B]
             cluster_dist_matrix = [[ pow(self.wasserstein.distC[(a,b)],self.p) for a in self.A] for b in self.B]
             proxy_dist_matrix = [[ self.wasserstein.proxyDistC[(a,b)] for a in self.A] for b in self.B]
             

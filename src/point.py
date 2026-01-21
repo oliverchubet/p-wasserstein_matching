@@ -1,3 +1,4 @@
+from math import inf
 
 class Point:
 
@@ -19,7 +20,7 @@ class Point:
         return "p" + str(self.id) #+": "+str(self.coords)
 
 class Edge:
-    def __init__(self, a, b, slack, center, level):
+    def __init__(self, a=None, b=None, slack=inf, center=None, level=inf):
         self.a = a
         self.b = b
         self.slack = slack
