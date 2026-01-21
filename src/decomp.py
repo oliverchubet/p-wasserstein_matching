@@ -202,16 +202,18 @@ class Decomposition:
             self.slack_heap.changepriority(cluster, edge.slack)
 
     def find_NN(self, b):
+        best_edge = Edge()
         if b in self.clusters:
             cluster = self.clusters[b]
-        best_edge = cluster.find_NN()
-        for level in self.lookup[b]:
-            for center in self.lookup[b][level]:
-                if center not in self.clusters: continue
-                cluster = self.clusters[center]
-                edge = cluster.find_NN_b(b)
-                if edge.slack <= best_edge.slack:
-                    best_edge = edge
+            best_edge = cluster.find_NN()
+        else:
+            for level in self.lookup[b]:
+                for center in self.lookup[b][level]:
+                    if center not in self.clusters: continue
+                    cluster = self.clusters[center]
+                    edge = cluster.find_NN_b(b)
+                    if edge.slack <= best_edge.slack:
+                        best_edge = edge
         return best_edge
 
     def updateB(self, b, lazy=False):
