@@ -16,7 +16,7 @@ class Point:
     #    return self.id == other.id
 
     def __str__(self):
-        return str(self.id)+": "+str(self.coords)
+        return "p" + str(self.id) #+": "+str(self.coords)
 
 class Edge:
     def __init__(self, a, b, slack, center, level):
@@ -31,4 +31,4 @@ class Edge:
         else: str_a = str(self.a.id)
         if self.b is None: str_b = "None"
         else: str_b = str(self.b.id)
-        return "".join(["Edge (", str_a, ",", str_b, "); slack = ", str(self.slack)])
+        return "".join(["Edge (", str_a, ",", str_b, "); slack = ", str(self.slack),"; ctr =", str(self.cluster.id)])

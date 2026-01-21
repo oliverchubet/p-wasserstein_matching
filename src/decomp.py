@@ -15,7 +15,6 @@ TRACE = False
 
 class Decomposition:
     def __init__(self, A, B, dist, p, delta, k, base, dim):
-        #if VERBOSE: print("Compute decomposition")
         self.A = A
         self.B = B
         self.n = len(A) + len(B)
@@ -32,25 +31,28 @@ class Decomposition:
         self.lookup = {x : defaultdict(set) for x in chain(A, B)}
         self.slack_heap = None
         self.init_nearest()
+        self.inactivated_A = set()
+        self.activated_B = set([b for b in self.B])
 
         self.compute_samples()
         for i in range(self.k-1, 0, -1):
-            ##if VERBOSEPLUS: print("Computing layer", i, " clusters", end=" ")
             self.compute_clusters(i)
             self.compute_nearest(i)
-        ##if VERBOSEPLUS: print("\nComputing layer 0 clusters", end=" ")
+
         self.compute_clusters(0)
-        ##if VERBOSEPLUS: print()
+
         self.cache_level_dist = {level: pow(base, level) for level in self.levels}
         self.cache_proxy_dist = {level: ceil(pow(self.cache_level_dist[level],p)/self.delta) for level in self.levels}
         self.cache_proxy_diam = {level: ceil(pow(2*self.cache_level_dist[level],p)/self.delta) for level in self.levels}
+        self._max_slack = ceil(pow(self.diam, self.p)/self.delta)
+
+        self.init_min_slack_heap()
 
     '''
     Each point in A and B is assigned to a layer
     '''
     def compute_samples(self):
         prob = pow(self.n, -1.0/self.k)
-        #for pt in chain(self.A, self.B):
         for pt in chain(self.A):
             for i in range(self.k):
                 if i == self.k-1 or random.random() > prob:
@@ -141,106 +143,80 @@ class Decomposition:
         if len(bucketsA) > 0 and len(bucketsB) > 0:
             self.clusters[center] = Cluster(pointsA, pointsB,center, bucketsA, bucketsB, self.p, self.base, self.delta, self.diam, self)
 
-    '''
-    Take the min slack edge from each cluster and put it into a min heap
-    '''
-    def init_min_slack_heap(self, A, B): #, tlevel): #threshhold=None):
+    def init_min_slack_heap(self):
         self.slack_heap = MinHeap()
         for center, cluster in self.clusters.items():
-            cluster.init_max_heaps(A, B) #, tlevel)
-            #cluster.print_heap_contents()
-            edge = cluster.weighted_BCP()
-            self.slack_heap.insert(cluster, edge.slack)
-        for a in self.A:
-            a.inserted = a in A
-        for b in self.B:
-            b.inserted = b in B
+            cluster.init_max_heaps()
+            self.slack_heap.insert(cluster, self._max_slack)
+        for a in self.A: a.inserted = True
+        for b in self.B: b.inserted = True
 
-    def update_slack_heap(self):
-        ##if VERBOSEPLUS: print("Updating min slack heap")
+    def bcp(self):
+        cluster = self.slack_heap.findmin()
+        return cluster.min_slack_edge
+
+    def activate_all_A(self, exclude=set()):
+        for a in self.inactivated_A:
+            if a not in exclude:
+                for level in self.lookup[a]:
+                    for center in self.lookup[a][level]:
+                        if center not in self.clusters: continue 
+                        cluster = self.clusters[center]
+                        cluster.updateA(a)
+        self.inactivated_A = set(exclude)
+
+    def removeA(self, a, lazy=False):
+        a.inserted = False
+        self.inactivated_A.add(a)
+        for level in self.lookup[a]:
+            for center in self.lookup[a][level]:
+                if center not in self.clusters: continue
+                cluster = self.clusters[center]
+                cluster.heapA.remove(a)
+                if not lazy and cluster.min_slack_edge.a == a:
+                    edge = cluster.find_BCP()
+                    self.slack_heap.changepriority(cluster, edge.slack)
+
+    def removeB(self, b, lazy=False):
+        b.inserted = False
+        if b in self.activated_B:
+            self.activated_B.remove(b)
+            for level in self.lookup[b]:
+                for center in self.lookup[b][level]:
+                    if center not in self.clusters: continue
+                    cluster = self.clusters[center]
+                    cluster.heapB.remove(b)
+                    if not lazy and cluster.min_slack_edge.b == b:
+                        edge = cluster.find_BCP()
+                        self.slack_heap.changepriority(cluster, edge.slack)
+
+    def activate_only_B(self, B):
+        rmv_pts = self.activated_B - B
+        for b in rmv_pts: self.removeB(b, lazy=True)
+        self.activated_B = set(B)
+        for b in B:
+            b.inserted = True
+            self.updateB(b, lazy=True)
         for center, cluster in self.clusters.items():
-            edge = cluster.weighted_BCP()
-            #if cluster.min_slack > edge.slack:
+            edge = cluster.find_BCP()
             self.slack_heap.changepriority(cluster, edge.slack)
 
+    def find_NN(self, b):
+        if b in self.clusters:
+            cluster = self.clusters[b]
+            return cluster.find_NN()
 
-    '''
-    Returns the min slack edge but does not remove it from the heap
-    '''
-    def weighted_BCP(self):
-        if TRACE: print("decomp.weighted_BCP")
-        self.update_slack_heap()
-        #print(self.slack_heap)
-        if len(self.slack_heap) > 0:
-            cluster = self.slack_heap.findmin()
-            return cluster.min_slack_edge
-
-    #def weighted_NN(self, x):
-    #    min_slack_edge = None
-    #    min_slack = self.diam
-    #    for level in self.lookup[x]:
-    #        for center in self.lookup[x][level]:
-    #            if center not in self.clusters:
-    #                continue
-    #            edge = self.clusters[center].weighted_NN(x)
-    #            if edge is None:
-    #                continue
-    #            if min_slack_edge is None or edge.slack < min_slack:
-    #                min_slack_edge = edge
-    #                min_slack = edge.slack
-    #    return min_slack_edge
-
-    '''
-    Each loop of Djikstra's, some points will have their path length updated.
-    Tell the clusters affected to update their heaps and min slack edge
-    Updating the min slack heap
-    '''
-    def removeA(self, a): #, tlevel): #threshhold=None):
-        #self.clusters[a.id].inserted = False
-        a.inserted = False
-        for level in self.lookup[a]:
-            #if level <= tlevel:
-            for center in self.lookup[a][level]:
-                if center not in self.clusters:
-                    continue
-                cluster = self.clusters[center]
-                cluster.removeA(a)
-                #if cluster not in self.slack_heap:
-                #    continue
-                edge = cluster.weighted_BCP()
-                #if edge is None:
-                #    if cluster in self.slack_heap:
-                #        self.slack_heap.remove(cluster)
-                #else:
-                self.slack_heap.changepriority(cluster, edge.slack)
-
-    def removeB(self, b): #, tlevel): #threshhold=None):
-        #self.clusters[b.id].inserted = False
-        b.inserted = False
+    def updateB(self, b, lazy=False):
+        self.activated_B.add(b)
+        b.inserted = True
         for level in self.lookup[b]:
-            #if level <= tlevel:
             for center in self.lookup[b][level]:
-                if center not in self.clusters:
-                    continue
-                cluster = self.clusters[center]
-                #if cluster not in self.slack_heap:
-                #    continue
-                cluster.removeB(b)
-                edge = cluster.weighted_BCP() #threshhold=threshhold)
-                #if edge is None:
-                #    self.slack_heap.remove(cluster)
-                #else:
-                self.slack_heap.changepriority(cluster, edge.slack)
-
-    def updateB(self, b): #, tlevel): #threshhold=None):
-        for level in self.lookup[b]:
-            #if level <= tlevel:
-            for center in self.lookup[b][level]:
-                if center not in self.clusters:
-                    continue 
+                if center not in self.clusters: continue 
                 cluster = self.clusters[center]
                 cluster.updateB(b)
-        self.update_slack_heap()
+                if not lazy:
+                    edge = cluster.find_BCP()
+                    self.slack_heap.changepriority(cluster, edge.slack)
 
     def compute_cluster_dist(self):
         self.distC = dict()
@@ -258,15 +234,12 @@ class Decomposition:
     def print_cluster_heaps(self, visitedA, visitedB):
         min_slack = ceil(pow(self.diam, self.p)/self.delta)
         for center, cluster in self.clusters.items():
-            #if DEBUG: print("Cluster", center.id)
             cluster.print_heap_contents()
             for a in cluster.A:
                 for b in cluster.B:
                     if a not in visitedA and b in visitedB:
                         slack = cluster.proxyDistC(a,b) - a.dual_weight - b.dual_weight + b.len_path
-                        #if DEBUG: print("a:", a.id,"b:", b.id, "proxyDist:", cluster.proxyDistC(a,b), "y(a):", a.dual_weight, "y(b):", b.dual_weight, "l(b):", b.len_path, "slack:", slack)
                         min_slack = min(slack, min_slack)
-        #if DEBUG: print("min slack:", min_slack)
 
 
     def print_clusters(self):
@@ -288,47 +261,26 @@ class Cluster:
         self.base = base
         self.delta = delta
         self.diam = diam
-        self._proxy_diam = ceil(pow(self.diam, self.p)/self.delta)
-        # caching the value 2*pow(base, level) to avoid function call overhead
-        levelsA, levelsB = set(bucketsA.keys()), set(bucketsB.keys())
-        self.levels = list(levelsA.union(levelsB))
-        self.levels.sort()
-        #self.threshold = self.levels[0]
-        #self._cache_level_dist = {level: pow(base, level) for level in levels}
-        #self._cache_proxy_dist = {level: ceil(pow(self._cache_level_dist[level],p)/self.delta) for level in levels}
-        #self._cache_proxy_diam = {level: ceil(pow(2*self._cache_level_dist[level],p)/self.delta) for level in levels}
-        #self._cache_proxy_dist = {level: pow(self._cache_level_dist[level], p) for level in levels}
-        #self._cache_proxy_diam = {level: pow(2*self._cache_level_dist[level], p) for level in levels}
-        self.inserted = False
+        self._max_slack = ceil(pow(self.diam, self.p)/self.delta)
+        all_levels_A, all_levels_B = set(bucketsA.keys()), set(bucketsB.keys())
+        self.all_levels = list(all_levels_A.union(all_levels_B))
+        self.all_levels.sort()
+        self.min_slack_edge = Edge(None, None, self._max_slack, self.center, None)
 
 
-    '''
-    Once the max heaps and max weights are initialized, the min slack edge is computed
-    '''
-
-    def weighted_BCP(self):
-        #if TRACE: print("cluster.weighted_BCP")
-        ##if VERBOSEPLUS: print("\tLooking for BCP of cluster", self.center.id, "...")
+    def find_BCP(self):
         max_a, max_b = None, None
-        min_slack = self._proxy_diam
+        min_slack = self._max_slack
         min_slack_edge = Edge(None, None, min_slack, self.center, None)
-        #print("Cluster", self.center.id, end=" ")
-        for level in self.levels:
-            #if level < threshold:
-            if DEBUGPLUS: print("\t\t\tlevel", level, end=" ")
-            #level_a = self.heapA.findmax(level)
-            #level_b = self.heapB.findmax(level)
+        for level in self.all_levels:
             level_a = self.heapA.max_item_cache.get(level)
             level_b = self.heapB.max_item_cache.get(level)
-            if DEBUGPLUS and max_a: print("max_a", max_a.id, end=" ")
-            if DEBUGPLUS and max_b: print("max_b", max_b.id, end="") 
             if self.center.inserted:
                 if self.center in self.A and level_b is not None:
                     slack = self.parent.cache_proxy_dist[level] - self.center.dual_weight - (level_b.dual_weight - level_b.len_path) + 1
                     if min_slack > slack:
                         min_slack = slack
                         min_slack_edge = Edge(self.center, level_b, slack, self.center, level)
-                        #print(min_slack_edge)
                 if self.center in self.B and level_a is not None:
                     slack = self.parent.cache_proxy_dist[level] - level_a.dual_weight - (self.center.dual_weight - self.center.len_path) + 1
                     if min_slack > slack:
@@ -338,106 +290,80 @@ class Cluster:
                 max_a = level_a
             if max_b is None or level_b is not None and level_b.dual_weight - level_b.len_path > max_b.dual_weight - max_b.len_path:
                 max_b = level_b
-            if DEBUGPLUS: print()
             if max_a is not None and max_b is not None:
-                #slack = self.proxyDistC(max_a, max_b) - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
-                #if max_a.id == self.id or max_b.id == self.id:
-                #    slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
-                #else:
                 slack = self.parent.cache_proxy_diam[level] - max_a.dual_weight - (max_b.dual_weight - max_b.len_path) + 1
 
-                if DEBUGPLUS: print("\t\tFound", max_a.id, max_b.id, "slack:", slack)
-                #print("slack =", slack, end="")
                 if min_slack > slack:
                     min_slack = slack
                     min_slack_edge = Edge(max_a, max_b, slack, self.center, level)
         self.min_slack_edge = min_slack_edge
         self.min_slack = min_slack
-        #if DEBUGPLUS: print("min slack edge:", self.min_slack_edge)
-        #print("center", self.id, "min slack edge:", self.min_slack_edge)
-        if DEBUGPLUS: print()
-        #print("Cluster", self.id, self.min_slack_edge)
         return min_slack_edge
 
-#    def weighted_NN(self,b):
-#        max_a = None
-#        min_slack = self.diam
-#        min_slack_edge = None
-#        for level in self.levels:
-#            #max_a = self.heapA.findmax(level)
-#            max_a = self.heapA.max_item_cache.get(level)
-#            if max_a is not None:
-#                #slack = self.proxyDistC(max_a, b) - max_a.dual_weight - (b.dual_weight - b.len_path)
-#                if b.id == self.id or max_a.id == self.id:
-#                    slack = self._cache_proxy_level_dist[level] - max_a.dual_weight - (b.dual_weight - b.len_path)
-#                else:
-#                    slack = 2*self._cache_proxy_level_dist[level] - max_a.dual_weight - (b.dual_weight - b.len_path)
-#                if min_slack > slack:
-#                    min_slack = slack
-#                    min_slack_edge = Edge(max_a, b, slack, self.center, level)
-#        return min_slack_edge
+    def find_NN(self):
+        edge = Edge(None, self.center, self._max_slack, self.center, None)
+        for level in self.all_levels:
+            a = self.heapA.max_item_cache.get(level)
+            if edge.a is None or (a is not None and a.dual_weight > edge.a.dual_weight):
+                edge.a = a
+                if edge.a is not None:
+                    slack = self.parent.cache_proxy_dist[level] - a.dual_weight - (self.center.dual_weight - self.center.len_path) + 1
 
-    def removeA(self, a):
-        #level = self.A[a]
-        #if level < threshold:
-        self.heapA.remove(a)
-
-    def removeB(self, b):
-        #level = self.B[b]
-        #if level < threshold:
-        self.heapB.remove(b)
+                    edge.slack = min(edge.slack, slack)
+        return edge
 
     def insertB(self, b):
         level = self.B[b]
-        #if level < threshold:
         self.heapB.insert(b, b.dual_weight - b.len_path, level)
                 
+    #def removeA(self, a):
+        #self.heapA.remove(a)
+        #if self.min_slack_edge.a == a:
+            #self.find_BCP()
+
+    #def removeB(self, b):
+        #self.heapB.remove(b)
+        #if self.min_slack_edge.b == b:
+            #self.find_BCP()
+
     def updateB(self, b):
-        ##if VERBOSEPLUS: print("Cluster", self.center.id, "updating", b.id)
         b.inserted = True
-        level = self.B[b]
-        self.levelsB.add(level)
-        self.compute_levels()
-        #if level < threshold:
         if b in self.heapB:
             self.heapB.changepriority(b, b.dual_weight - b.len_path)
         else:
+            level = self.B[b]
             self.heapB.insert(b, b.dual_weight - b.len_path, level)
-        #self.weighted_BCP()
-        #self.print_heap_contents()
+        # TODO: check if b is part of the new best edge and update if needed
 
-    '''
-    Insert points into heaps by level keyed by their weight
-    Initializes self.heapsA and self.heapsB (each level maps to a max heap keyed by weights)
-    '''
-    def init_max_heaps(self, A, B): #, tlevel):
+    def updateA(self, a):
+        a.inserted = True
+        if a in self.heapA:
+            self.heapA.changepriority(a, a.dual_weight)
+        else:
+            level = self.A[a]
+            self.heapA.insert(a, a.dual_weight, level)
+        # TODO: check if a is part of the new best edge and update if needed
+
+    def init_max_heaps(self):
         self.heapA, self.heapB = MaxLevelHeap(), MaxLevelHeap()
         for level, bucket in self.bucketsA.items():
-            #if level <= tlevel:
             for a in bucket:
-                if a in A:
-                    self.heapA.insert(a, a.dual_weight, level)
+                #self.heapA.insert(a, a.dual_weight, level)
+                self.heapA.insert(a, 0, level)
         for level, bucket in self.bucketsB.items():
-            #if level < tlevel:
             for b in bucket:
-                if b in B:
-                    self.heapB.insert(b, b.dual_weight - b.len_path,level)
-        self.compute_levels()
+                #self.heapB.insert(b, b.dual_weight - b.len_path,level)
+                self.heapB.insert(b, 0, level)
 
     '''
     Computes a sorted list of the non-empty levels
     '''
-    def compute_levels(self):
-        self.levelsA = self.heapA.levels
-        self.levelsB = self.heapB.levels
-        levels = self.levelsA.union(self.levelsB)
-        #if None in levels: levels.remove(None)
-        self.levels = list(levels)
-        self.levels.sort()
-        #self.levels = [None] + levels
-
-    #def compute_levels(self):
-    #    levelsA
+    def compute_active_levels(self):
+        self.active_levels_A = self.heapA.levels
+        self.active_levels_B = self.heapB.levels
+        active_levels = self.active_levels_A.union(self.active_levels_B)
+        self.active_levels = list(levels)
+        self.active_levels.sort()
 
     '''
     Cluster distance within this cluster
